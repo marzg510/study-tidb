@@ -110,3 +110,39 @@ while true; do
 done"
 
 ```
+
+## TiDB Cloud
+
+https://tidbcloud.com/
+
+
+```sh
+kubectl run mysql-client --image=mysql:5.7 --restart=Never -- sleep 10000
+kubectl cp isrgrootx1.pem mysql-client:/tmp/tidbcloud.pem
+kubectl cp transactions_utf8.csv mysql-client:/tmp/transactions_utf8.csv
+kubectl exec -it mysql-client -- bash
+
+mysql --comments -u 'fugafuga.root' -h gateway01.ap-northeast-1.prod.aws.tidbcloud.com -P 4000 -D 'moneyforward' --ssl-mode=VERIFY_IDENTITY --ssl-ca=/tmp/tidbcloud.pem -p'hogehoge' --local-infile=1
+
+load data local infile '/tmp/transactions_utf8.csv'
+into table mf_transactions
+fields terminated by ','
+enclosed by '"'
+lines terminated by '\n'
+ignore
+;
+```
+
+
+### Client Secret & Pod
+
+```sh
+kubectl create secret generic tidb-config --from-env-file=.env
+k create -f tidb-client.yaml
+kubectl cp isrgrootx1.pem tidb-client:/tmp/tidbcloud.pem
+kubectl cp transactions_utf8.csv tidb-client:/tmp/transactions_utf8.csv
+kubectl exec -it tidb-client -- bash
+mysql --comments -u "${TIDB_USER}" -h "${TIDB_HOST}" -P 4000 -D "${TIDB_DATABASE}" --ssl-mode=VERIFY_IDENTITY --ssl-ca=/tmp/tidbcloud.pem -p"${TIDB_PASSWORD}" --local-infile=1
+
+```
+

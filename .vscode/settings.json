@@ -1,0 +1,18 @@
+{
+  "sqltools.connections": [
+    {
+      "mysqlOptions": {
+        "authProtocol": "default",
+        "enableSsl": "Enabled",
+        "ssl": {}
+      },
+      "previewLimit": 50,
+      "server": "gateway01.ap-northeast-1.prod.aws.tidbcloud.com",
+      "port": 4000,
+      "driver": "TiDB",
+      "name": "tidb-cloud",
+      "database": "moneyforward",
+      "username": "2JWrBN7Ky291tCf.root"
+    }
+  ]
+}
