@@ -2,3 +2,4 @@
 transactions*.csv
 *.pem
 .env
+*.log

@@ -111,6 +111,183 @@ done"
 
 ```
 
+#### データファイル破壊1/ ローカルminikube環境
+
+```sh
+# TiKVのPVCとデータディレクトリを確認
+kubectl get pvc -n sample
+kubectl describe pvc -n sample
+```
+
+#### a) PVC内のデータファイルを直接破壊
+
+```sh
+# minikubeにSSH接続
+minikube ssh
+
+# TiKVのデータディレクトリを探す
+sudo find /tmp/hostpath-provisioner -name "*.sst" -o -name "MANIFEST*"
+
+# RocksDBのSSTファイルを破壊
+sudo dd if=/dev/urandom of=/tmp/hostpath-provisioner/sample/tikv-sample-cluster-tikv-0/db/*.sst bs=1024 count=100
+
+# MANIFESTファイルを削除
+sudo rm /tmp/hostpath-provisioner/sample/tikv-sample-cluster-tikv-0/db/MANIFEST-*
+```
+
+b) ディスクフル実験
+
+minikube ssh
+# TiKVのデータディレクトリにダミーファイルを大量作成
+sudo dd if=/dev/zero of=/tmp/hostpath-provisioner/sample/tikv-sample-cluster-tikv-0/fillup bs=1M count=8000
+
+### 破壊実験3. カオスメッシュを使った本格的な障害注入（推奨）
+
+```sh
+# Chaos Meshのインストール
+
+# CRDのインストール（server-side applyでannotation制限を回避）
+kubectl apply --server-side -f https://mirrors.chaos-mesh.org/v2.5.0/crd.yaml
+
+# Helmリポジトリ追加
+helm repo add chaos-mesh https://charts.chaos-mesh.org
+helm repo update
+
+# minikubeのランタイムを確認
+minikube ssh -- docker ps > /dev/null 2>&1 && echo "Runtime: Docker" || echo "Runtime: containerd"
+
+# Dockerランタイムの場合（minikubeのデフォルト）
+helm uninstall chaos-mesh -n chaos-testing 2>/dev/null || true
+helm install chaos-mesh chaos-mesh/chaos-mesh \
+  -n chaos-testing --create-namespace \
+  --set chaosDaemon.runtime=docker \
+  --set chaosDaemon.socketPath=/var/run/docker.sock \
+  --set chaosDaemon.hostNetwork=true \
+  --set dashboard.create=true
+
+# containerdランタイムの場合
+# helm install chaos-mesh chaos-mesh/chaos-mesh \
+#   -n chaos-testing --create-namespace \
+#   --set chaosDaemon.runtime=containerd \
+#   --set chaosDaemon.socketPath=/run/containerd/containerd.sock \
+#   --set chaosDaemon.hostNetwork=true \
+#   --set dashboard.create=true
+
+# インストール確認
+kubectl get pods -n chaos-testing
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=chaos-daemon -n chaos-testing --timeout=120s
+
+# hostNetworkが有効か確認
+kubectl get pod -n chaos-testing -l app.kubernetes.io/component=chaos-daemon -o jsonpath='{.items[0].spec.hostNetwork}'
+# "true" と表示されればOK
+```
+
+
+```sh
+# IOエラーを注入するYAMLを作成
+cat > iochaos-tidb.yaml << 'EOF'
+apiVersion: chaos-mesh.org/v1alpha1
+kind: IOChaos
+metadata:
+  name: io-delay-tikv
+  namespace: sample
+spec:
+  action: fault
+  mode: one
+  selector:
+    namespaces:
+      - sample
+    labelSelectors:
+      app.kubernetes.io/component: tikv
+  volumePath: /var/lib/tikv
+  path: /var/lib/tikv/db/*.sst
+  errno: 5  # EIO (Input/output error)
+  percent: 50
+  duration: "30s"
+EOF
+
+kubectl apply -f iochaos-tidb.yaml
+```
+
+#### Chaos Mesh確認
+
+```sh
+# 1. IOChaosの状態を確認
+kubectl describe iochaos -n sample io-delay-tikv
+
+# 2. どのPodに障害が注入されたか確認
+kubectl get iochaos -n sample io-delay-tikv -o jsonpath='{.status.experiment.containerRecords}'
+
+# 3. TiKV-1のログを確認（I/Oエラーが出ているはず）
+kubectl logs -n sample sample-cluster-tikv-1 --tail=50
+
+# 4. PD-2のログを確認（クラッシュの原因）
+kubectl logs -n sample sample-cluster-pd-2 --tail=50
+
+# 5. TiDBから見たクラスターの状態を確認
+kubectl exec -n sample -it mysql-client -- mysql -h sample-cluster-tidb -P 4000 -u root -e "
+SELECT STORE_ID, ADDRESS, STORE_STATE_NAME, AVAILABLE 
+FROM INFORMATION_SCHEMA.TIKV_STORE_STATUS;
+"
+
+# 6. SQLクエリが実行できるか試す
+kubectl exec -n sample -it mysql-client -- mysql -h sample-cluster-tidb -P 4000 -u root -e "
+SELECT NOW(), COUNT(*) FROM information_schema.tables;
+"
+```
+
+#### Chaos実験の自動監視スクリプト
+
+```sh
+# スクリプトに実行権限を付与
+chmod +x monitor-chaos.sh run-chaos-experiment.sh
+
+# 方法1: 監視スクリプトのみ実行（手動でChaosを注入する場合）
+./monitor-chaos.sh
+
+# 方法2: 実験と監視を自動実行（推奨）
+./run-chaos-experiment.sh
+# メニューから実験タイプを選択:
+# 1) 短期IOChaos (30秒, 50%エラー率)
+# 2) 長期IOChaos (5分, 50%エラー率)
+# 3) 高負荷IOChaos (2分, 100%エラー率)
+# 4) I/O遅延 (2分, 100ms遅延)
+# 5) Pod障害 (1分)
+# 6) Pod強制終了
+# 7) ネットワーク遅延 (200ms, 2分)
+# 8) CPUストレス (2分)
+```
+
+監視スクリプトの出力例：
+```
+Time                | Status | Response                       | Pod Status
+---------------------------------------------------------------------------------------------------
+2026-02-13 12:00:01 | OK     | Tables: 123                    |        All Running (0 restarts)
+2026-02-13 12:00:03 | OK     | Tables: 123                    |        All Running (0 restarts)
+2026-02-13 12:00:05 | ERROR  | Lost connection to MySQL       | CHANGED [tikv-1:CrashLoopBackOff:1]
+2026-02-13 12:00:07 | ERROR  | Can't connect to MySQL         |        [tikv-1:CrashLoopBackOff:1]
+2026-02-13 12:00:35 | OK     | Tables: 123                    | CHANGED All Running (1 restarts)
+
+--- Statistics (10 iterations) ---
+Success: 7, Errors: 3
+Availability: 70.00%
+IOChaos: INACTIVE (正常状態)
+```
+
+#### 障害の手動注入
+
+```sh
+cd chaos
+```
+
+##### IOChaos
+
+```sh
+kubectl apply -f iochaos-tidb.yaml
+```
+
+
+
 ## TiDB Cloud
 
 https://tidbcloud.com/
@@ -138,11 +315,12 @@ ignore
 
 ```sh
 kubectl create secret generic tidb-config --from-env-file=.env
+kubectl create secret generic tidb-ca --from-file=ca.pem=isrgrootx1.pem
 k create -f tidb-client.yaml
 kubectl cp isrgrootx1.pem tidb-client:/tmp/tidbcloud.pem
 kubectl cp transactions_utf8.csv tidb-client:/tmp/transactions_utf8.csv
 kubectl exec -it tidb-client -- bash
-mysql --comments -u "${TIDB_USER}" -h "${TIDB_HOST}" -P 4000 -D "${TIDB_DATABASE}" --ssl-mode=VERIFY_IDENTITY --ssl-ca=/tmp/tidbcloud.pem -p"${TIDB_PASSWORD}" --local-infile=1
+mysql --comments -u "${TIDB_USER}" -h "${TIDB_HOST}" -P 4000 -D "${TIDB_DATABASE}" --ssl-mode=VERIFY_IDENTITY --ssl-ca=/etc/tidb-ca/ca.pem -p"${TIDB_PASSWORD}" --local-infile=1
 
 ```
 

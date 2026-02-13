@@ -13,6 +13,14 @@ spec:
     envFrom:
     - secretRef:
         name: tidb-config
+    volumeMounts:
+    - mountPath: /etc/tidb-ca
+      name: tidb-ca
+      readOnly: true
+  volumes:
+  - name: tidb-ca
+    secret:
+      secretName: tidb-ca
   dnsPolicy: ClusterFirst
   restartPolicy: Never
 status: {}

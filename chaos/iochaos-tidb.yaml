@@ -1,0 +1,18 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: IOChaos
+metadata:
+  name: io-delay-tikv
+  namespace: sample
+spec:
+  action: fault
+  mode: one
+  selector:
+    namespaces:
+      - sample
+    labelSelectors:
+      app.kubernetes.io/component: tikv
+  volumePath: /var/lib/tikv
+  path: /var/lib/tikv/db/*.sst
+  errno: 5  # EIO (Input/output error)
+  percent: 50
+  duration: "30s"
