@@ -324,3 +324,41 @@ mysql --comments -u "${TIDB_USER}" -h "${TIDB_HOST}" -P 4000 -D "${TIDB_DATABASE
 
 ```
 
+### Money Forward
+
+#### 一括投入
+
+1. マージファイル作成
+```sh
+CSV_DIR="/mnt/g/マイドライブ/life/家計/マネーフォワード/2024/"
+for f in "${CSV_DIR}/"*.csv; do
+  tail -n +2 "$f" | iconv -f sjis -t utf-8
+done > transactions.csv
+# 確認
+# find ${CSV_DIR} -maxdepth 1 -name "*.csv" -exec tail -n +2 {} + | wc -l
+file transactions.csv  # UTF-8であることを確認
+wc -l transactions.csv  # 行数を確認
+```
+
+2. 投入
+```sh
+k create -f tidb-client.yaml
+kubectl cp transactions.csv tidb-client:/tmp/transactions.csv
+kubectl exec -it tidb-client -- bash
+mysql --comments -u "${TIDB_USER}" -h "${TIDB_HOST}" -P 4000 -D "${TIDB_DATABASE}" --ssl-mode=VERIFY_IDENTITY --ssl-ca=/etc/tidb-ca/ca.pem -p"${TIDB_PASSWORD}" --local-infile=1
+truncate table mf_transactions;
+load data local infile '/tmp/transactions.csv'
+ignore
+into table mf_transactions
+fields terminated by ','
+enclosed by '"'
+lines terminated by '\n'
+;
+```
+
+## etc
+
+Google Drive 手動マウント
+```sh
+sudo mount -t drvfs G: /mnt/g
+```

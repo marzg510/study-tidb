@@ -8,7 +8,7 @@ spec:
     name: tidb-client
     args:
     - sleep
-    - "1000"
+    - infinity
     resources: {}
     envFrom:
     - secretRef:
