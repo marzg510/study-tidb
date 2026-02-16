@@ -137,9 +137,11 @@ sudo rm /tmp/hostpath-provisioner/sample/tikv-sample-cluster-tikv-0/db/MANIFEST-
 
 b) ディスクフル実験
 
+```sh
 minikube ssh
 # TiKVのデータディレクトリにダミーファイルを大量作成
 sudo dd if=/dev/zero of=/tmp/hostpath-provisioner/sample/tikv-sample-cluster-tikv-0/fillup bs=1M count=8000
+```
 
 ### 破壊実験3. カオスメッシュを使った本格的な障害注入（推奨）
 
