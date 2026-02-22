@@ -62,23 +62,6 @@ services:
       - ./sh:/scripts
     secrets:
       - ca.pem
-  verify-results:
-    depends_on:
-      load-data:
-        condition: service_completed_successfully
-    image: mysql:5.7
-    command:
-      - sh
-      - /scripts/verify-results.sh
-    restart: "no"
-    env_file:
-      - .env
-    environment:
-      - TARGET_YM=${TARGET_YM}
-    volumes:
-      - ./sh:/scripts
-    secrets:
-      - ca.pem
 
 volumes:
   shared-data:
