@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sample-job
+  namespace: mf
+spec:
+  # Job完了後も手動削除するまで残す（ログ確認のため）
+  ttlSecondsAfterFinished: 3600  # 1時間後に自動削除
+  backoffLimit: 3  # 最大3回リトライ
+  template:
+    metadata:
+      labels:
+        app: sample
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: sample
+        image: alpine:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          #!/bin/sh
+          set -e
+          echo "Hello, World! This is a sample job."
+          echo "INPUT_DIR: $INPUT_DIR"
+          echo "OUTPUT_DIR: $OUTPUT_DIR"
+        env:
+        - name: INPUT_DIR
+          value: "/data/sjis-csv"
+        - name: OUTPUT_DIR
+          value: "/data/utf8-csv"
+        volumeMounts:
+        - name: shared-data
+          mountPath: /data
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: csv-processing-pvc

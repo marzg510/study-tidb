@@ -1,0 +1,121 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: load-data-job
+  namespace: mf
+spec:
+  ttlSecondsAfterFinished: 3600  # 1時間後に自動削除
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: data-loader
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: loader
+        image: mysql:5.7
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          #!/bin/bash
+          set -e
+
+          echo "=== TiDB Data Loading Job ==="
+          echo "Database: $TIDB_DATABASE"
+          echo "Host: $TIDB_HOST"
+          echo "Input file: $INPUT_FILE"
+          echo "Target year-month: $YEAR_MONTH"
+
+          # 年月パラメータ確認
+          if [ -z "$YEAR_MONTH" ]; then
+            echo "Error: YEAR_MONTH environment variable is not set."
+            echo "Expected format: YYYY-MM (e.g., 2024-01)"
+            exit 1
+          fi
+
+          # 入力ファイル確認
+          if [ ! -f "$INPUT_FILE" ]; then
+            echo "Error: Input file not found: $INPUT_FILE"
+            exit 1
+          fi
+
+          echo "File size: $(du -h $INPUT_FILE | cut -f1)"
+          echo "Line count: $(wc -l < $INPUT_FILE)"
+
+          # データロード用SQLファイル作成
+          cat > /tmp/load_data.sql <<EOF
+          DELETE FROM mf_transactions WHERE DATE_FORMAT(tx_date, '%Y-%m') = '$YEAR_MONTH';
+          LOAD DATA LOCAL INFILE '$INPUT_FILE'
+          INTO TABLE mf_transactions
+          FIELDS TERMINATED BY ','
+          OPTIONALLY ENCLOSED BY '"'
+          LINES TERMINATED BY '\n'
+          (is_calculation_target, tx_date, description, amount, institution, category_major, category_minor, memo, is_transfer, id)
+          ;
+          EOF
+
+          echo ""
+          echo "=== SQL to be executed ==="
+          cat /tmp/load_data.sql
+          echo "=== End of SQL ==="
+          echo ""
+          echo "=== Connecting to TiDB and loading data ==="
+
+          # TiDBに接続してデータ投入
+          mysql --comments \
+            -v \
+            -u "$TIDB_USER" \
+            -h "$TIDB_HOST" \
+            -P 4000 \
+            -D "$TIDB_DATABASE" \
+            --ssl-mode=VERIFY_IDENTITY \
+            --ssl-ca=/etc/tidb-ca/ca.pem \
+            -p"$TIDB_PASSWORD" \
+            --local-infile=1 \
+            < /tmp/load_data.sql
+
+          # 投入結果確認
+          echo ""
+          echo "=== Verifying loaded data ==="
+          mysql --comments \
+            -u "$TIDB_USER" \
+            -h "$TIDB_HOST" \
+            -P 4000 \
+            -D "$TIDB_DATABASE" \
+            --ssl-mode=VERIFY_IDENTITY \
+            --ssl-ca=/etc/tidb-ca/ca.pem \
+            -p"$TIDB_PASSWORD" \
+            -e "SELECT COUNT(*) as total_rows FROM mf_transactions; SELECT COUNT(*) as loaded_rows, MIN(tx_date) as min_date, MAX(tx_date) as max_date FROM mf_transactions WHERE DATE_FORMAT(tx_date, '%Y-%m') = '$YEAR_MONTH';"
+
+          echo ""
+          echo "=== Data loading completed successfully ==="
+        env:
+        - name: INPUT_FILE
+          value: "/data/utf8-csv/transactions-utf8.csv"
+        - name: YEAR_MONTH
+          value: "2026-02"
+        envFrom:
+        - secretRef:
+            name: tidb-config
+        volumeMounts:
+        - name: shared-data
+          mountPath: /data
+          readOnly: true
+        - name: tidb-ca
+          mountPath: /etc/tidb-ca
+          readOnly: true
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "1000m"
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: csv-processing-pvc
+      - name: tidb-ca
+        secret:
+          secretName: tidb-ca

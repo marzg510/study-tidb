@@ -358,6 +358,24 @@ lines terminated by '\n'
 ;
 ```
 
+### 自動投入
+
+#### 構想
+
+- K8SのJOBとして動作する
+- 引数に年月とCSVファイル名を渡す
+- mf_transactionsテーブルの当該年月のデータを入れ替える（DELETEしてLOAD）
+- CSVファイルをUTF-8に変換するJOBと、CSVをロードするJOBに分ける。
+- CSVファイルをGoogle Driverからローカルに持ってくるジョブもPODにする
+
+#### 環境
+
+```sh
+k create ns mf
+kubectl create secret generic tidb-config --from-env-file=../../.env -n mf
+kubectl create secret generic tidb-ca --from-file=ca.pem=../../isrgrootx1.pem -n mf
+```
+
 ## etc
 
 Google Drive 手動マウント
