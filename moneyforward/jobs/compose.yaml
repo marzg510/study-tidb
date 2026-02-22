@@ -1,0 +1,88 @@
+services:
+  imp2container:
+    image: alpine:latest
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        mkdir -pv $${OUT_DIR}
+        cp -pv /input-data/$${IN_FILE} $${OUT_DIR}/$${OUT_FILE}
+    restart: "no"
+    environment:
+      OUT_DIR: /data/sjis-csv
+      OUT_FILE: transactions-sjis.csv
+      # IN_FILE: 収入・支出詳細_2026-02-01_2026-02-28.csv
+      # IN_FILE: 収入・支出詳細_2026-01-01_2026-01-31.csv
+      IN_FILE: ${IN_FILE}
+    volumes:
+      - shared-data:/data
+      - ./input-data:/input-data
+  sjis2utf8:
+    depends_on:
+      imp2container:
+        condition: service_completed_successfully
+    image: alpine:latest
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        IN_PATH=$${IN_DIR}/$${IN_FILE}
+        OUT_PATH=$${OUT_DIR}/$${OUT_FILE}
+        echo "INPUT_PATH: $${IN_PATH}"
+        echo "OUTPUT_PATH: $${OUT_PATH}"
+        mkdir -pv $${OUT_DIR}
+        tail -n +2 "$${IN_PATH}" | iconv -f SJIS -t UTF-8 > "$${OUT_PATH}"
+    restart: "no"
+    environment:
+      - IN_DIR=/data/sjis-csv
+      - IN_FILE=transactions-sjis.csv
+      - OUT_DIR=/data/utf8-csv
+      - OUT_FILE=transactions-utf8.csv
+    volumes:
+      - shared-data:/data
+  load-data:
+    depends_on:
+      sjis2utf8:
+        condition: service_completed_successfully
+    image: mysql:5.7
+    command:
+      - sh
+      - /scripts/load-data.sh
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      - IN_DIR=/data/utf8-csv
+      - IN_FILE=transactions-utf8.csv
+      - TARGET_YM=${TARGET_YM}
+    volumes:
+      - shared-data:/data
+      - ./sh:/scripts
+    secrets:
+      - ca.pem
+  verify-results:
+    depends_on:
+      load-data:
+        condition: service_completed_successfully
+    image: mysql:5.7
+    command:
+      - sh
+      - /scripts/verify-results.sh
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      - TARGET_YM=${TARGET_YM}
+    volumes:
+      - ./sh:/scripts
+    secrets:
+      - ca.pem
+
+volumes:
+  shared-data:
+
+secrets:
+  ca.pem:
+    file: ./certs/ca.pem
