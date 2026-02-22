@@ -376,9 +376,175 @@ kubectl create secret generic tidb-config --from-env-file=../../.env -n mf
 kubectl create secret generic tidb-ca --from-file=ca.pem=../../isrgrootx1.pem -n mf
 ```
 
+#### Docker compose
+
+```sh
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2025/収入・支出詳細_2025-03-01_2025-03-31.csv 2025-03
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2025/収入・支出詳細_2025-04-01_2025-04-30.csv 2025-04
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2025/収入・支出詳細_2025-05-01_2025-05-31.csv 2025-05
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2025/収入・支出詳細_2025-06-01_2025-06-30.csv 2025-06
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2025/収入・支出詳細_2025-07-01_2025-07-31.csv 2025-07
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2025/収入・支出詳細_2025-08-01_2025-08-31.csv 2025-08
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2025/収入・支出詳細_2025-09-01_2025-09-30.csv 2025-09
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2025/収入・支出詳細_2025-10-01_2025-10-31.csv 2025-10
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2025/収入・支出詳細_2025-11-01_2025-11-30.csv 2025-11
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2025/収入・支出詳細_2025-12-01_2025-12-31.csv 2025-12
+
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2024/収入・支出詳細_2024-01-01_2024-01-31.csv 2024-01
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2024/収入・支出詳細_2024-02-01_2024-02-29.csv 2024-02
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2024/収入・支出詳細_2024-03-01_2024-03-31.csv 2024-03
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2024/収入・支出詳細_2024-04-01_2024-04-30.csv 2024-04
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2024/収入・支出詳細_2024-05-01_2024-05-31.csv 2024-05
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2024/収入・支出詳細_2024-06-01_2024-06-30.csv 2024-06
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2024/収入・支出詳細_2024-07-01_2024-07-31.csv 2024-07
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2024/収入・支出詳細_2024-08-01_2024-08-31.csv 2024-08
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2024/収入・支出詳細_2024-09-01_2024-09-30.csv 2024-09
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2024/収入・支出詳細_2024-10-01_2024-10-31.csv 2024-10
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2024/収入・支出詳細_2024-11-01_2024-11-30.csv 2024-11
+./load-data-compose.sh /mnt/g/マイドライブ/life/家計/マネーフォワード/2024/収入・支出詳細_2024-12-01_2024-12-31.csv 2024-12
+
+```
+
+debug
+```
+docker run --rm -it --env-file .env -v jobs_shared-data:/data -v ./certs/ca.pem:/run/secrets/ca.pem:ro mysql:5.7 bash
+mysql --comments \
+  -u "$DB_USER" \
+  -h "$DB_HOST" \
+  -P 4000 \
+  -D "$DB_DATABASE" \
+  --ssl-mode=VERIFY_IDENTITY \
+  --ssl-ca=/run/secrets/ca.pem \
+  -p"$DB_PASSWORD" \
+  --local-infile=1
+
+```
+
+sum
+```sql
+SELECT
+  DATE_FORMAT(tx_date, '%Y-%m') AS ym,
+  -SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END) AS spending,
+  SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS income,
+  SUM(amount) AS balance
+FROM mf_transactions
+WHERE is_calculation_target = 1
+GROUP BY ym
+ORDER BY ym;
+```
+
+```sql
+SELECT
+  DATE_FORMAT(tx_date, '%Y-%m') AS ym,
+  category_major,
+  -SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END) AS spending
+FROM mf_transactions
+WHERE is_calculation_target = 1
+AND DATE_FORMAT(tx_date, '%Y-%m') = '2026-01'
+GROUP BY ym, category_major
+HAVING spending > 0
+ORDER BY ym, category_major
+;
+```
+
+```sql
+SELECT
+  DATE_FORMAT(tx_date, '%Y-%m') AS ym,
+  category_major,
+  category_minor,
+  -SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END) AS spending
+FROM mf_transactions
+WHERE is_calculation_target = 1
+AND DATE_FORMAT(tx_date, '%Y-%m') = '2026-01'
+AND category_major = '食費'
+GROUP BY ym, category_major, category_minor
+HAVING spending > 0
+ORDER BY ym, category_major, category_minor
+;
+```
+
+### master
+```SQL
+SELECT DISTINCT
+  category_major,
+  category_minor,
+FROM mf_transactions
+WHERE is_calculation_target = 1
+AND amount < 0
+GROUP BY category_major, category_minor
+ORDER BY category_major, category_minor
+;
+```
+
+#### DDL
+```SQL
+CREATE TABLE category_major (
+  category_major VARCHAR(50) PRIMARY KEY,
+  order_no INT DEFAULT 999999
+);
+
+INSERT INTO category_major (category_major)
+SELECT DISTINCT
+  category_major
+FROM mf_transactions tr
+WHERE is_calculation_target = 1
+AND amount < 0
+ON DUPLICATE KEY UPDATE category_major = tr.category_major
+;
+```
+
+
+### 年次
+```sql
+SELECT
+  category_major,
+  SUM(CASE WHEN YEAR(tx_date) = 2024 THEN -amount ELSE 0 END) AS '2024',
+  SUM(CASE WHEN YEAR(tx_date) = 2025 THEN -amount ELSE 0 END) AS '2025',
+  SUM(CASE WHEN YEAR(tx_date) = 2026 THEN -amount ELSE 0 END) AS '2026'
+FROM mf_transactions
+WHERE is_calculation_target = 1 AND amount < 0
+GROUP BY category_major
+ORDER BY category_major;
+;
+```
+
+```sql
+SELECT
+  cm.order_no,
+  tr.category_major,
+  SUM(CASE WHEN YEAR(tx_date) = 2024 THEN -amount ELSE 0 END) AS '2024',
+  SUM(CASE WHEN YEAR(tx_date) = 2025 THEN -amount ELSE 0 END) AS '2025',
+  SUM(CASE WHEN YEAR(tx_date) = 2026 THEN -amount ELSE 0 END) AS '2026'
+FROM mf_transactions tr
+LEFT JOIN category_major cm ON tr.category_major = cm.category_major
+WHERE is_calculation_target = 1 AND amount < 0
+GROUP BY tr.category_major
+ORDER BY cm.order_no;
+;
+```
+
+
+```SQL
+SELECT
+  cmj.order_no,
+  tr.category_major,
+  tr.category_minor,
+  SUM(CASE WHEN YEAR(tx_date) = 2024 THEN -amount ELSE 0 END) AS '2024',
+  SUM(CASE WHEN YEAR(tx_date) = 2025 THEN -amount ELSE 0 END) AS '2025',
+  SUM(CASE WHEN YEAR(tx_date) = 2026 THEN -amount ELSE 0 END) AS '2026'
+FROM mf_transactions tr
+LEFT JOIN category_major cmj ON tr.category_major = cmj.category_major
+WHERE is_calculation_target = 1
+AND tr.category_major in ('食費', '現金・カード', '趣味・娯楽')
+GROUP BY tr.category_major, category_minor
+ORDER BY cmj.order_no, category_minor
+;
+```
+
 ## etc
 
 Google Drive 手動マウント
 ```sh
 sudo mount -t drvfs G: /mnt/g
 ```
+

@@ -29,7 +29,6 @@ echo ""
 
 # データロード用SQLファイル作成
 cat > /tmp/load_data.sql <<EOF
-BEGIN;
 DELETE FROM mf_transactions WHERE DATE_FORMAT(tx_date, '%Y-%m') = '$TARGET_YM';
 LOAD DATA LOCAL INFILE '$IN_PATH'
 INTO TABLE mf_transactions
@@ -38,14 +37,8 @@ OPTIONALLY ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 (is_calculation_target, tx_date, description, amount, institution, category_major, category_minor, memo, is_transfer, id)
 ;
-COMMIT;
 EOF
 
-echo ""
-echo "=== SQL to be executed ==="
-cat /tmp/load_data.sql
-echo "=== End of SQL ==="
-echo ""
 echo "=== Connecting to DB and loading data ==="
 
 # DBに接続してデータ投入

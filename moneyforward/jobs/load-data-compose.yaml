@@ -12,12 +12,10 @@ services:
     environment:
       OUT_DIR: /data/sjis-csv
       OUT_FILE: transactions-sjis.csv
-      # IN_FILE: 収入・支出詳細_2026-02-01_2026-02-28.csv
-      # IN_FILE: 収入・支出詳細_2026-01-01_2026-01-31.csv
       IN_FILE: ${IN_FILE}
     volumes:
       - shared-data:/data
-      - ./input-data:/input-data
+      - ${IN_DIR:-./input-data}:/input-data
   sjis2utf8:
     depends_on:
       imp2container:
@@ -46,10 +44,7 @@ services:
     depends_on:
       sjis2utf8:
         condition: service_completed_successfully
-    image: mysql:5.7
-    command:
-      - sh
-      - /scripts/load-data.sh
+    build: ./load-data
     restart: "no"
     env_file:
       - .env
@@ -59,7 +54,6 @@ services:
       - TARGET_YM=${TARGET_YM}
     volumes:
       - shared-data:/data
-      - ./sh:/scripts
     secrets:
       - ca.pem
 
